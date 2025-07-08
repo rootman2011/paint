@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- SEO Metatags -->
+  <title>Paint Online - Herramienta de Dibujo Digital</title>
+  <meta name="description" content="Da vida a tus ideas con este lienzo de dibujo online. Herramientas potentes, interfaz simple y exportación fácil. Dibuja, pinta y crea sin necesidad de instalar nada.">
+
+  <script>
+    // Evita el FOUC (Flash Of Unstyled Content) aplicando el tema antes de que se renderice la página.
+    (function() {
+      const theme = localStorage.getItem('theme') || 'light';
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { /* Light Mode */
+      --primary: 167 79% 43%;        /* teal-500: #14b8a6 */
+      --primary-focus: 173 83% 31%;   /* teal-600: #0d9488 */
+      --secondary: 220 8% 52%;        /* gray-500: #6b7280 */
+      --base-100: 0 0% 100%;           /* white */
+      --base-200: 225 17% 96%;        /* gray-100: #f3f4f6 */
+      --base-content: 215 28% 17%;    /* gray-800: #1f2937 */
+    }
+    .dark { /* Dark Mode */
+      --primary: 167 79% 43%;        /* teal-500: #14b8a6 */
+      --primary-focus: 173 83% 31%;   /* teal-600: #0d9488 */
+      --secondary: 215 14% 34%;       /* gray-700: #374151 */
+      --base-100: 215 28% 17%;        /* gray-800: #1f2937 */
+      --base-200: 222 39% 11%;        /* gray-900: #111827 */
+      --base-content: 216 33% 97%;    /* gray-50:  #f9fafb */
+    }
+    body {
+      background-color: hsl(var(--base-200));
+      color: hsl(var(--base-content));
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            'primary': 'hsl(var(--primary))',
+            'primary-focus': 'hsl(var(--primary-focus))',
+            'secondary': 'hsl(var(--secondary))',
+            'base-100': 'hsl(var(--base-100))',
+            'base-200': 'hsl(var(--base-200))',
+            'base-content': 'hsl(var(--base-content))',
+          },
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎨</text></svg>">
+</head>
+<body class="font-sans">
+
+  <div id="app"></div>
+
+  <script type="module">
+    const $ = (selector) => document.querySelector(selector);
+
+    /**
+     * @class PaintApp
+     * Encapsula toda la lógica y el estado de la aplicación de dibujo para una mejor
+     * organización y mantenibilidad.
+     */
+    class PaintApp {
+      constructor() {
+        this.canvas = $('#paint-canvas');
+        if (!this.canvas) return; // Salir si el canvas no está en el DOM
+
+        this.ctx = this.canvas.getContext('2d');
+
+        // --- Estado de la Aplicación ---
+        this.isDrawing = false;
+        this.lastMoveEvent = null;
+        this.sprayInterval = null;
+        this.history = [];
+        this.historyIndex = -1;
+        this.startCoords = { x: 0, y: 0 };
+        this.state = {
+          color: '#000000',
+          brushSize: 10,
+          tool: 'brush',
+          zoomLevel: 1,
+        };
+        this.shapeTools = ['circle', 'square', 'triangle'];
+        
+        // --- Referencias a Elementos del DOM ---
+        this.elements = {
+          canvasContainer: $('#canvas-container'),
+          colorPicker: $('#color-picker'),
+          brushSizeSlider: $('#brush-size'),
+          brushSizeInput: $('#brush-size-input'),
+          zoomLevelDisplay: $('#zoom-level-display'),
+          tools: {
+            brush: $('#tool-brush'), spray: $('#tool-spray'), eraser: $('#tool-eraser'),
+            fill: $('#tool-fill'), circle: $('#tool-circle'), square: $('#tool-square'),
+            triangle: $('#tool-triangle'),
+          },
+          actions: {
+            undo: $('#action-undo'), redo: $('#action-redo'), clear: $('#action-clear'),
+            download: $('#action-download'), zoomIn: $('#action-zoom-in'), zoomOut: $('#action-zoom-out'),
+          }
+        };
+
+        // --- Inicialización ---
+        this.bindMethods();
+        this.initCanvas();
+        this.attachEventListeners();
+      }
+
+      /**
+       * Vincula los métodos de la clase al contexto 'this' para evitar problemas
+       * de ámbito en los manejadores de eventos.
+       */
+      bindMethods() {
+        this.startDrawing = this.startDrawing.bind(this);
+        this.draw = this.draw.bind(this);
+        this.stopDrawing = this.stopDrawing.bind(this);
+        this.handleBrushSizeChange = this.handleBrushSizeChange.bind(this);
+      }
+      
+      /**
+       * Configura el canvas inicial, el historial y la interfaz de usuario.
+       */
+      initCanvas() {
+        this.canvas.width = 1920;
+        this.canvas.height = 1080;
+
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.saveState();
+        this.setActiveTool('brush');
+        this.updateUndoRedoUI();
+        this.updateZoomUI();
+
+        // Centrar el canvas en el contenedor
+        this.elements.canvasContainer.scrollTop = (this.canvas.offsetHeight - this.elements.canvasContainer.clientHeight) / 2;
+        this.elements.canvasContainer.scrollLeft = (this.canvas.offsetWidth - this.elements.canvasContainer.clientWidth) / 2;
+      }
+
+      /**
+       * Registra todos los manejadores de eventos para la interfaz de usuario.
+       */
+      attachEventListeners() {
+        // Eventos del Canvas
+        this.canvas.addEventListener('mousedown', this.startDrawing);
+        this.canvas.addEventListener('mousemove', this.draw);
+        this.canvas.addEventListener('mouseup', this.stopDrawing);
+        this.canvas.addEventListener('mouseout', (e) => { if (this.isDrawing) this.stopDrawing(e); });
+
+        // Eventos Táctiles
+        this.canvas.addEventListener('touchstart', (e) => { e.preventDefault(); this.startDrawing(e); }, { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => { e.preventDefault(); this.draw(e); }, { passive: false });
+        this.canvas.addEventListener('touchend', this.stopDrawing);
+        
+        // Controles de la Barra de Herramientas
+        this.elements.colorPicker.addEventListener('input', (e) => {
+            this.state.color = e.target.value;
+            this.applyBrushSettings();
+        });
+
+        this.elements.brushSizeSlider.addEventListener('input', (e) => this.handleBrushSizeChange(e.target.value));
+        this.elements.brushSizeInput.addEventListener('change', (e) => this.handleBrushSizeChange(e.target.value));
+
+        // Botones de Herramientas y Acciones
+        Object.entries(this.elements.tools).forEach(([name, button]) => button.addEventListener('click', () => this.setActiveTool(name)));
+        Object.entries(this.elements.actions).forEach(([name, button]) => {
+            const actionMap = {
+                undo: () => this.undo(),
+                redo: () => this.redo(),
+                clear: () => this.clearCanvas(),
+                download: () => this.downloadImage(),
+                zoomIn: () => this.handleZoom(this.state.zoomLevel + 0.1),
+                zoomOut: () => this.handleZoom(this.state.zoomLevel - 0.1)
+            };
+            if(actionMap[name]) button.addEventListener('click', actionMap[name]);
+        });
+      }
+
+      // --- MÉTODOS DE LÓGICA DE DIBUJO ---
+
+      startDrawing(e) {
+        if (this.state.tool === 'fill') {
+          const { x, y } = this.getCoords(e);
+          this.floodFill(x, y);
+          this.saveState();
+          return;
+        }
+
+        this.isDrawing = true;
+        this.lastMoveEvent = e;
+        const { x, y } = this.getCoords(e);
+        this.startCoords = { x, y };
+        
+        if (this.state.tool === 'spray') {
+          this.sprayInterval = setInterval(() => this.sprayPaint(this.lastMoveEvent), 50);
+        } else if (!this.shapeTools.includes(this.state.tool)) {
+          this.applyBrushSettings();
+          this.ctx.beginPath();
+          this.ctx.moveTo(x, y);
+        }
+      }
+
+      draw(e) {
+        if (!this.isDrawing) return;
+        this.lastMoveEvent = e;
+        const { x, y } = this.getCoords(e);
+        
+        if (this.shapeTools.includes(this.state.tool)) {
+          this.restoreState(this.historyIndex);
+          this.drawShape(this.startCoords.x, this.startCoords.y, x, y);
+        } else if (this.state.tool === 'brush' || this.state.tool === 'eraser') {
+          this.applyBrushSettings();
+          this.ctx.lineTo(x, y);
+          this.ctx.stroke();
+        }
+      }
+
+      stopDrawing(e) {
+        if (!this.isDrawing) return;
+        
+        if (this.shapeTools.includes(this.state.tool)) {
+          const { x, y } = this.getCoords(e);
+          this.restoreState(this.historyIndex); // Restaura el estado antes de dibujar la forma final
+          this.drawShape(this.startCoords.x, this.startCoords.y, x, y);
+        } else if (this.state.tool === 'brush' || this.state.tool === 'eraser') {
+          this.ctx.closePath();
+        }
+        
+        this.isDrawing = false;
+        if(this.state.tool === 'spray') clearInterval(this.sprayInterval);
+        this.lastMoveEvent = null;
+        this.saveState();
+      }
+
+      // --- MÉTODOS DE HERRAMIENTAS ESPECÍFICAS ---
+
+      sprayPaint(e) {
+        if (!e) return;
+        const { x, y } = this.getCoords(e);
+        const radius = this.state.brushSize;
+        // 26 partículas por ráfaga para mantener la densidad original (30% más rápido que 20)
+        for (let i = 0; i < 26; i++) {
+            const angle = Math.random() * 2 * Math.PI;
+            const distance = Math.random() * radius;
+            this.ctx.fillRect(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, 1, 1);
+        }
+      }
+      
+      drawShape(x1, y1, x2, y2) {
+        this.applyBrushSettings();
+        this.ctx.beginPath();
+        if (this.state.tool === 'square') {
+            this.ctx.rect(x1, y1, x2 - x1, y2 - y1);
+        } else if (this.state.tool === 'circle') {
+            const radius = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+            this.ctx.arc(x1, y1, radius, 0, 2 * Math.PI);
+        } else if (this.state.tool === 'triangle') {
+            this.ctx.moveTo(x1, y1);
+            this.ctx.lineTo(x2, y2);
+            this.ctx.lineTo(x1 - (x2 - x1), y2);
+            this.ctx.closePath();
+        }
+        this.ctx.stroke();
+      }
+      
+      /**
+       * Algoritmo de Relleno por Inundación (Flood Fill) usando una cola (BFS) y una
+       * tolerancia de color para manejar bordes con antialiasing.
+       * @param {number} startX - Coordenada X inicial.
+       * @param {number} startY - Coordenada Y inicial.
+       */
+      floodFill(startX, startY) {
+        startX = Math.round(startX);
+        startY = Math.round(startY);
+        
+        const { width, height } = this.canvas;
+        const imageData = this.ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        
+        const fillColorRgb = this.hexToRgb(this.state.color);
+        if (!fillColorRgb) return;
+        const fillColor = [fillColorRgb.r, fillColorRgb.g, fillColorRgb.b, 255];
+
+        const getPixelIndex = (x, y) => (y * width + x) * 4;
+        const startIdx = getPixelIndex(startX, startY);
+        if (startIdx < 0 || startIdx >= data.length) return;
+        
+        const startColor = [data[startIdx], data[startIdx + 1], data[startIdx + 2], data[startIdx + 3]];
+        
+        if (JSON.stringify(startColor) === JSON.stringify(fillColor)) return;
+        
+        const TOLERANCE_SQ = 32 * 32; // Tolerancia al cuadrado para evitar Math.sqrt()
+        const queue = [[startX, startY]];
+        const visited = new Uint8Array(width * height);
+        
+        while (queue.length > 0) {
+            const [x, y] = queue.shift();
+            const pixelKey = y * width + x;
+
+            if (x < 0 || x >= width || y < 0 || y >= height || visited[pixelKey]) continue;
+
+            const idx = getPixelIndex(x, y);
+            const dr = data[idx] - startColor[0];
+            const dg = data[idx + 1] - startColor[1];
+            const db = data[idx + 2] - startColor[2];
+            const da = data[idx + 3] - startColor[3];
+
+            if ((dr*dr + dg*dg + db*db + da*da) <= TOLERANCE_SQ) {
+                data[idx] = fillColor[0];
+                data[idx + 1] = fillColor[1];
+                data[idx + 2] = fillColor[2];
+                data[idx + 3] = fillColor[3];
+                visited[pixelKey] = 1;
+
+                queue.push([x + 1, y]);
+                queue.push([x - 1, y]);
+                queue.push([x, y + 1]);
+                queue.push([x, y - 1]);
+            }
+        }
+        this.ctx.putImageData(imageData, 0, 0);
+      }
+
+      // --- MÉTODOS DE MANEJO DE ESTADO E HISTORIAL ---
+
+      saveState() {
+        if (this.canvas.width === 0 || this.canvas.height === 0) return;
+        if (this.historyIndex < this.history.length - 1) {
+            this.history.splice(this.historyIndex + 1);
+        }
+        this.history.push(this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height));
+        this.historyIndex++;
+        this.updateUndoRedoUI();
+      }
+
+      restoreState(index) {
+        if (index < 0 || index >= this.history.length) return;
+        this.ctx.putImageData(this.history[index], 0, 0);
+      }
+      
+      undo() {
+        if(this.historyIndex > 0) {
+          this.historyIndex--;
+          this.restoreState(this.historyIndex);
+          this.updateUndoRedoUI();
+        }
+      }
+
+      redo() {
+        if(this.historyIndex < this.history.length - 1) {
+          this.historyIndex++;
+          this.restoreState(this.historyIndex);
+          this.updateUndoRedoUI();
+        }
+      }
+      
+      // --- MÉTODOS DE UI Y ACCIONES ---
+      
+      setActiveTool(tool) {
+        this.state.tool = tool;
+        Object.values(this.elements.tools).forEach(btn => btn.classList.remove('bg-primary/20', 'text-primary'));
+        this.elements.tools[tool].classList.add('bg-primary/20', 'text-primary');
+        this.applyBrushSettings();
+      }
+
+      clearCanvas() {
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.saveState();
+      }
+      
+      downloadImage() {
+        const link = document.createElement('a');
+        link.download = 'mi-dibujo.png';
+        link.href = this.canvas.toDataURL('image/png');
+        link.click();
+      }
+
+      handleZoom(newZoomLevel) {
+          const oldZoomLevel = this.state.zoomLevel;
+          newZoomLevel = Math.max(0.1, Math.min(3, newZoomLevel));
+          if (oldZoomLevel === newZoomLevel) return;
+
+          const container = this.elements.canvasContainer;
+          const rect = container.getBoundingClientRect();
+          const scrollXRatio = (container.scrollLeft + rect.width / 2) / (this.canvas.offsetWidth);
+          const scrollYRatio = (container.scrollTop + rect.height / 2) / (this.canvas.offsetHeight);
+
+          this.state.zoomLevel = newZoomLevel;
+          this.updateZoomUI();
+
+          const newScrollLeft = (this.canvas.offsetWidth * scrollXRatio) - rect.width / 2;
+          const newScrollTop = (this.canvas.offsetHeight * scrollYRatio) - rect.height / 2;
+          container.scrollLeft = newScrollLeft;
+          container.scrollTop = newScrollTop;
+      }
+      
+      handleBrushSizeChange(value) {
+        let newSize = parseInt(value, 10);
+        if (isNaN(newSize) || newSize < 1) newSize = 1;
+        if (newSize > 100) newSize = 100;
+
+        this.state.brushSize = newSize;
+        this.elements.brushSizeSlider.value = newSize;
+        this.elements.brushSizeInput.value = newSize;
+        this.applyBrushSettings();
+      }
+
+      updateUndoRedoUI() {
+        this.elements.actions.undo.disabled = this.historyIndex <= 0;
+        this.elements.actions.redo.disabled = this.historyIndex >= this.history.length - 1;
+        this.elements.actions.undo.classList.toggle('opacity-50', this.elements.actions.undo.disabled);
+        this.elements.actions.redo.classList.toggle('opacity-50', this.elements.actions.redo.disabled);
+      }
+
+      updateZoomUI() {
+        const newWidth = this.canvas.width * this.state.zoomLevel;
+        const newHeight = this.canvas.height * this.state.zoomLevel;
+        this.canvas.style.width = `${newWidth}px`;
+        this.canvas.style.height = `${newHeight}px`;
+        this.elements.zoomLevelDisplay.textContent = `${Math.round(this.state.zoomLevel * 100)}%`;
+      }
+      
+      // --- MÉTODOS AUXILIARES ---
+
+      applyBrushSettings() {
+        this.ctx.strokeStyle = this.state.color;
+        this.ctx.fillStyle = this.state.color;
+        this.ctx.lineWidth = this.state.brushSize;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.globalCompositeOperation = this.state.tool === 'eraser' ? 'destination-out' : 'source-over';
+      }
+
+      getCoords(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+          x: ((clientX - rect.left) / rect.width) * this.canvas.width,
+          y: ((clientY - rect.top) / rect.height) * this.canvas.height
+        };
+      }
+
+      hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : null;
+      }
+    }
+
+    // --- LÓGICA DE LA PÁGINA PRINCIPAL (UI, Tema, etc.) ---
+
+    const PageController = {
+        state: {
+            theme: localStorage.getItem('theme') || 'light',
+        },
+        
+        // --- Generadores de Plantillas HTML ---
+        createHeader: () => `
+            <header class="bg-base-100 shadow-lg sticky top-0 z-50">
+              <nav class="container mx-auto px-4">
+                <div class="flex items-center justify-between h-16">
+                  <a href="/" class="flex items-center space-x-2">
+                    <span class="text-2xl">🎨</span>
+                    <span class="text-xl font-bold text-base-content whitespace-nowrap">Paint Online</span>
+                  </a>
+                  <div class="flex items-center gap-4">
+                    <a href="https://lordcraft.online" target="_blank" rel="noopener noreferrer" class="px-4 py-2 rounded-md text-white bg-lime-500 font-semibold shadow-sm hover:bg-lime-400 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100 focus:ring-lime-600">
+                      Inicio
+                    </a>
+                    <button id="theme-switcher" class="p-2 rounded-full text-base-content hover:bg-secondary/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100 focus:ring-primary" aria-label="Cambiar tema">
+                      <span id="theme-icon-container"></span>
+                    </button>
+                  </div>
+                </div>
+              </nav>
+            </header>`,
+
+        createFooter: () => `
+            <footer class="bg-base-100 border-t border-secondary/50">
+              <div class="container mx-auto px-4 py-6 text-center text-gray-400">
+                <p>&copy; ${new Date().getFullYear()} Paint Online. Todos los derechos reservados.</p>
+                <p class="text-sm mt-1">Creado con ❤️ y código.</p>
+              </div>
+            </footer>`,
+
+        createPaintPage: () => {
+            const icons = {
+                brush: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z"></path></svg>`,
+                spray: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM9 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm5 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM6 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm13-8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM5 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm12 2a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 14a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-4-7a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm9-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-8-3a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-5 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path></svg>`,
+                eraser: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
+                size: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7"></path></svg>`,
+                undo: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"></path></svg>`,
+                redo: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z"></path></svg>`,
+                clear: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`,
+                download: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>`,
+                zoomIn: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>`,
+                zoomOut: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4"></path></svg>`,
+                circle: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12a5 5 0 1110 0 5 5 0 01-10 0z" /></svg>`,
+                square: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" /></svg>`,
+                triangle: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2L2 22h20L12 2z" /></svg>`,
+                fill: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm-1.707.293a.999.999 0 011.414 0l3 3a1 1 0 01-1.414 1.414L6 18.414l-1.293 1.293a1 1 0 01-1.414-1.414l3-3zM16.25 4.1a1 1 0 011.414 1.414l-8 8a1 1 0 01-1.414 0l-1.5-1.5a1 1 0 011.414-1.414L8.5 11.086l7.75-7.986z" clip-rule="evenodd" /></svg>`
+            };
+            return `
+                <div class="w-full h-full flex flex-col bg-base-100 rounded-2xl shadow-2xl overflow-hidden" style="height: calc(100vh - 12rem);">
+                    <div id="paint-toolbar" class="p-2 bg-base-200 border-b border-secondary/50 flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <!-- Tools -->
+                        <div class="flex items-center gap-1 p-1 bg-base-100/50 rounded-md">
+                            <button id="tool-brush" class="p-2 rounded-md hover:bg-primary/20" title="Pincel">${icons.brush}</button>
+                            <button id="tool-spray" class="p-2 rounded-md hover:bg-primary/20" title="Aerógrafo">${icons.spray}</button>
+                            <button id="tool-eraser" class="p-2 rounded-md hover:bg-primary/20" title="Goma de borrar">${icons.eraser}</button>
+                            <button id="tool-fill" class="p-2 rounded-md hover:bg-primary/20" title="Rellenar">${icons.fill}</button>
+                        </div>
+                        <div class="h-6 border-l border-secondary/30"></div>
+                        <!-- Shape Tools -->
+                        <div class="flex items-center gap-1 p-1 bg-base-100/50 rounded-md">
+                            <button id="tool-circle" class="p-2 rounded-md hover:bg-primary/20" title="Círculo">${icons.circle}</button>
+                            <button id="tool-square" class="p-2 rounded-md hover:bg-primary/20" title="Cuadrado">${icons.square}</button>
+                            <button id="tool-triangle" class="p-2 rounded-md hover:bg-primary/20" title="Triángulo">${icons.triangle}</button>
+                        </div>
+                        <div class="h-6 border-l border-secondary/30"></div>
+                        <!-- Brush Size & Color -->
+                        <div class="flex items-center gap-2 p-1">
+                            <label for="brush-size" class="text-base-content" title="Tamaño del pincel">${icons.size}</label>
+                            <input type="range" id="brush-size" min="1" max="100" value="10" class="w-32 md:w-40 cursor-pointer">
+                            <input type="number" id="brush-size-input" min="1" max="100" value="10" class="w-16 p-1 text-center font-mono text-sm bg-base-100 rounded-md border border-secondary/30 focus:ring-primary focus:border-primary">
+                            <input type="color" id="color-picker" value="#000000" class="w-8 h-8 p-0 border-none rounded-full cursor-pointer bg-transparent" title="Selector de color">
+                        </div>
+                        <div class="h-6 border-l border-secondary/30"></div>
+                        <!-- Actions -->
+                        <div class="flex items-center gap-1 p-1">
+                            <button id="action-undo" class="p-2 rounded-md hover:bg-primary/20" title="Deshacer">${icons.undo}</button>
+                            <button id="action-redo" class="p-2 rounded-md hover:bg-primary/20" title="Rehacer">${icons.redo}</button>
+                            <button id="action-clear" class="p-2 rounded-md hover:bg-primary/20 text-red-500" title="Limpiar Lienzo">${icons.clear}</button>
+                        </div>
+                        <div class="h-6 border-l border-secondary/30"></div>
+                        <!-- Zoom -->
+                        <div class="flex items-center gap-1 p-1">
+                            <button id="action-zoom-out" class="p-2 rounded-md hover:bg-primary/20" title="Alejar">${icons.zoomOut}</button>
+                            <span id="zoom-level-display" class="text-sm font-mono w-12 text-center">100%</span>
+                            <button id="action-zoom-in" class="p-2 rounded-md hover:bg-primary/20" title="Acercar">${icons.zoomIn}</button>
+                        </div>
+                        <div class="h-6 border-l border-secondary/30"></div>
+                        <div class="flex items-center gap-1 p-1">
+                            <button id="action-download" class="p-2 rounded-md hover:bg-primary/20" title="Descargar">${icons.download}</button>
+                        </div>
+                    </div>
+                    <div id="canvas-container" class="flex-grow w-full h-full relative bg-gray-300 dark:bg-gray-900 cursor-crosshair overflow-auto">
+                        <canvas id="paint-canvas" class="shadow-lg block"></canvas>
+                    </div>
+                </div>
+            `;
+        },
+
+        // --- Manejo del Tema ---
+        updateThemeIcon: () => {
+            const isDark = document.documentElement.classList.contains('dark');
+            const icon = isDark 
+                ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.66-13.66l-.7.7M4.34 19.66l-.7.7M21 12h-1M3 12H2m16.66 7.66l-.7-.7M4.34 4.34l-.7-.7" /></svg>`
+                : `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 118.646 3.646 7 7 0 0020.354 15.354z" /></svg>`;
+            $('#theme-icon-container').innerHTML = icon;
+        },
+
+        toggleTheme: () => {
+            PageController.state.theme = PageController.state.theme === 'light' ? 'dark' : 'light';
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', PageController.state.theme);
+            PageController.updateThemeIcon();
+        },
+        
+        // --- Inicialización de la Página ---
+        init: () => {
+            const app = $('#app');
+            app.innerHTML = `
+                ${PageController.createHeader()}
+                <main id="app-main-content" class="flex-grow container mx-auto px-4 py-4">
+                  ${PageController.createPaintPage()}
+                </main>
+                ${PageController.createFooter()}
+            `;
+            
+            // Adjuntar manejadores de eventos de la página
+            $('#theme-switcher').addEventListener('click', PageController.toggleTheme);
+            PageController.updateThemeIcon();
+            
+            // Iniciar la aplicación de dibujo
+            new PaintApp();
+        }
+    };
+
+    // --- PUNTO DE ENTRADA ---
+    document.addEventListener('DOMContentLoaded', PageController.init);
+
+  </script>
+</body>
+</html>
