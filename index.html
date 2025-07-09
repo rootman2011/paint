@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -140,8 +141,8 @@
        * Configura el canvas inicial, el historial y la interfaz de usuario.
        */
       initCanvas() {
-        this.canvas.width = 1920;
-        this.canvas.height = 1080;
+        this.canvas.width = 1280;
+        this.canvas.height = 720;
 
         this.ctx.fillStyle = 'white';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -487,23 +488,17 @@
                     <span class="text-2xl">🎨</span>
                     <span class="text-xl font-bold text-base-content whitespace-nowrap">Paint Online</span>
                   </a>
-                  <div class="flex items-center gap-4">
-                    <a href="https://lordcraft.online" target="_blank" rel="noopener noreferrer" class="px-4 py-2 rounded-md text-white bg-lime-500 font-semibold shadow-sm hover:bg-lime-400 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100 focus:ring-lime-600">
-                      Inicio
-                    </a>
-                    <button id="theme-switcher" class="p-2 rounded-full text-base-content hover:bg-secondary/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100 focus:ring-primary" aria-label="Cambiar tema">
-                      <span id="theme-icon-container"></span>
-                    </button>
-                  </div>
+                  <button id="theme-switcher" class="p-2 rounded-full text-base-content hover:bg-secondary/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100 focus:ring-primary" aria-label="Cambiar tema">
+                    <span id="theme-icon-container"></span>
+                  </button>
                 </div>
               </nav>
             </header>`,
 
         createFooter: () => `
             <footer class="bg-base-100 border-t border-secondary/50">
-              <div class="container mx-auto px-4 py-6 text-center text-gray-400">
-                <p>&copy; ${new Date().getFullYear()} Paint Online. Todos los derechos reservados.</p>
-                <p class="text-sm mt-1">Creado con ❤️ y código.</p>
+              <div class="container mx-auto px-4 py-2 text-center text-gray-500 text-xs">
+                <p>&copy; ${new Date().getFullYear()} Paint Online. Todos los derechos reservados. Creado con ❤️ y código.</p>
               </div>
             </footer>`,
 
@@ -525,7 +520,7 @@
                 fill: `<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm-1.707.293a.999.999 0 011.414 0l3 3a1 1 0 01-1.414 1.414L6 18.414l-1.293 1.293a1 1 0 01-1.414-1.414l3-3zM16.25 4.1a1 1 0 011.414 1.414l-8 8a1 1 0 01-1.414 0l-1.5-1.5a1 1 0 011.414-1.414L8.5 11.086l7.75-7.986z" clip-rule="evenodd" /></svg>`
             };
             return `
-                <div class="w-full h-full flex flex-col bg-base-100 rounded-2xl shadow-2xl overflow-hidden" style="height: calc(100vh - 12rem);">
+                <div class="w-full h-full flex flex-col bg-base-100 rounded-2xl shadow-2xl overflow-hidden" style="height: calc(100vh - 6.5rem);">
                     <div id="paint-toolbar" class="p-2 bg-base-200 border-b border-secondary/50 flex flex-wrap items-center gap-x-3 gap-y-2">
                         <!-- Tools -->
                         <div class="flex items-center gap-1 p-1 bg-base-100/50 rounded-md">
@@ -596,7 +591,7 @@
             const app = $('#app');
             app.innerHTML = `
                 ${PageController.createHeader()}
-                <main id="app-main-content" class="flex-grow container mx-auto px-4 py-4">
+                <main id="app-main-content" class="flex-grow container mx-auto px-4 py-2">
                   ${PageController.createPaintPage()}
                 </main>
                 ${PageController.createFooter()}
